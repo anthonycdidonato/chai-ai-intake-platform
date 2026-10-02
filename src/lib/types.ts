@@ -1,80 +1,66 @@
 import type { ResponseValue, RiskLevel } from '../data/riskData'
 
-export type OrgType = 'vendor' | 'hdo'
-
-export interface EvidenceFile {
+/** A document the reviewer has received from the vendor. */
+export interface EvidenceItem {
   id: string
   /** Evidence package this document was filed under. */
   packageId: string
-  /** Optional specific evidence example the uploader selected. */
+  /** Optional specific evidence example the reviewer selected. */
   example?: string
   name: string
-  size: number
-  type: string
-  uploadedAt: string
-  /** Which step of the workflow this file arrived at. */
+  /** Where in the workflow this was added. */
   addedDuring: 'intake' | 'review'
 }
 
 export interface ModifierState {
-  /** Level the platform suggested from evidence + description. */
+  /** Level the platform suggested from the description and documentation. */
   suggested: ResponseValue
-  /** Human-readable trace of why. */
+  /** Why — a plain-language trace the reviewer can check. */
   rationale: string
   /** Evidence packages that supported the suggestion. */
   supportingEvidence: string[]
-  /** Evidence packages that are missing and would resolve the modifier. */
+  /** Evidence packages that would resolve the modifier if supplied. */
   missingEvidence: string[]
   confidence: 'High' | 'Medium' | 'Low'
-  /** User's override of the suggested level, if any. */
-  override?: ResponseValue
-  /** Relative weight applied to this modifier, 0–3. Default 1. */
-  weight: number
+  /** The reviewer's confirmed level. Set once they accept or change it. */
+  confirmed?: ResponseValue
   notes?: string
 }
 
 export interface DomainResult {
   domainId: string
   domainName: string
-  /** Highest response present, per the CHAI tool's own guidance. */
-  chaiLevel: RiskLevel | 'Need More Info'
-  /** Weighted composite band. */
-  weightedLevel: RiskLevel
-  weightedScore: number
+  /** Highest modifier level in the domain. */
+  level: RiskLevel | 'Need More Info'
   counts: Record<ResponseValue, number>
 }
 
 export interface Determination {
-  /** Faithful to the CHAI tool: overall = highest modifier response. */
-  chaiOverall: RiskLevel | 'Need More Info'
-  /** Member-adjusted weighted composite. */
-  weightedOverall: RiskLevel
-  weightedScore: number
-  /** Level the platform recommends the member accept. */
-  suggestedOverall: RiskLevel | 'Need More Info'
+  /** Highest modifier level across both domains. */
+  overall: RiskLevel | 'Need More Info'
   highCount: number
   needsInfoCount: number
+  /** How many of the 19 modifiers the reviewer has explicitly confirmed. */
+  confirmedCount: number
   domains: DomainResult[]
 }
 
-export type SessionStatus = 'draft' | 'categorized' | 'accepted'
+export type Step = 'describe' | 'categorize' | 'mitigate' | 'report'
 
-export interface IntakeSession {
+export interface Assessment {
   id: string
-  orgName: string
-  orgType: OrgType
-  submitterName: string
-  submitterEmail: string
+  /** The organization doing the review. */
+  reviewerOrg: string
+  reviewerName: string
+  /** The vendor and solution under review. */
+  vendorName: string
   solutionName: string
   useCase: string
-  evidence: EvidenceFile[]
+  evidence: EvidenceItem[]
   modifiers: Record<string, ModifierState>
-  status: SessionStatus
+  step: Step
   createdAt: string
   updatedAt: string
-  acceptedAt?: string
-  acceptedBy?: string
-  /** Overall level the member accepted as final. */
-  finalOverall?: RiskLevel
-  finalNote?: string
+  /** Set when the reviewer accepts the categorization and moves to mitigations. */
+  categorizationAcceptedAt?: string
 }

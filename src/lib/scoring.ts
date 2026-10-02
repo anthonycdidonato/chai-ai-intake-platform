@@ -1,27 +1,18 @@
-// Turns per-modifier levels plus member-set weights into domain and overall
-// risk. Two figures are always reported side by side:
+// Overall and per-domain risk.
 //
-//   CHAI level      — faithful to the Risk Categorization Tool: the tool does
-//                     not produce a single score, and any High modifier means
-//                     the solution warrants a detailed risk assessment. So the
-//                     CHAI level is simply the highest response present.
-//   Weighted level  — the member-adjusted composite. Each modifier contributes
-//                     in proportion to the weight the member assigned it.
+// Faithful to the CHAI Risk Categorization Tool, which states that it does not
+// produce a single risk score: each modifier is categorized independently, and
+// the level that matters at the domain and solution level is the highest
+// modifier present. If any modifier is High, the solution warrants a detailed
+// risk assessment regardless of how many modifiers came out Low.
 //
-// N/A and Need More Info modifiers are excluded from the weighted math.
+// N/A and Need More Info modifiers are carried in the counts but do not set a
+// level — an unanswered modifier is a gap to close, not a low risk.
 
 import { DOMAINS, type ResponseValue, type RiskLevel } from '../data/riskData'
-import { effectiveLevel } from './inference'
-import type { Determination, DomainResult, ModifierState } from './types'
+import type { DomainResult, Determination, ModifierState } from './types'
 
 export const LEVEL_VALUE: Record<RiskLevel, number> = { Low: 1, Medium: 2, High: 3 }
-
-/** Band a weighted mean (1–3) into Low / Medium / High. */
-export function bandScore(score: number): RiskLevel {
-  if (score < 1.6667) return 'Low'
-  if (score < 2.3334) return 'Medium'
-  return 'High'
-}
 
 export const EMPTY_COUNTS: Record<ResponseValue, number> = {
   Low: 0,
@@ -31,114 +22,59 @@ export const EMPTY_COUNTS: Record<ResponseValue, number> = {
   'Need More Info': 0,
 }
 
-function isScorable(level: ResponseValue): level is RiskLevel {
-  return level === 'Low' || level === 'Medium' || level === 'High'
+/** The level in force for a modifier: the reviewer's confirmation, else the suggestion. */
+export function confirmedLevel(state: ModifierState): ResponseValue {
+  return state.confirmed ?? state.suggested
 }
 
-interface Weighted {
-  weightSum: number
-  valueSum: number
+function isLevel(v: ResponseValue): v is RiskLevel {
+  return v === 'Low' || v === 'Medium' || v === 'High'
 }
 
-function accumulate(ids: string[], modifiers: Record<string, ModifierState>) {
-  const counts = { ...EMPTY_COUNTS }
-  const w: Weighted = { weightSum: 0, valueSum: 0 }
-  let highest = 0
-  let needsInfo = 0
-
-  for (const id of ids) {
-    const state = modifiers[id]
-    if (!state) continue
-    const level = effectiveLevel(state)
-    counts[level] += 1
-    if (level === 'Need More Info') needsInfo += 1
-    if (!isScorable(level)) continue
-    highest = Math.max(highest, LEVEL_VALUE[level])
-    if (state.weight > 0) {
-      w.weightSum += state.weight
-      w.valueSum += state.weight * LEVEL_VALUE[level]
-    }
-  }
-  return { counts, w, highest, needsInfo }
-}
-
-/** Share of the weighted total that one modifier accounts for, as a percentage. */
-export function contribution(
-  modifierId: string,
-  modifiers: Record<string, ModifierState>,
-  scope: string[],
-): number {
-  const state = modifiers[modifierId]
-  if (!state) return 0
-  const level = effectiveLevel(state)
-  if (!isScorable(level) || state.weight <= 0) return 0
-  let total = 0
-  for (const id of scope) {
-    const s = modifiers[id]
-    if (!s) continue
-    const l = effectiveLevel(s)
-    if (isScorable(l) && s.weight > 0) total += s.weight * LEVEL_VALUE[l]
-  }
-  if (total === 0) return 0
-  return ((state.weight * LEVEL_VALUE[level]) / total) * 100
+function topOf(value: number): RiskLevel {
+  if (value >= 3) return 'High'
+  if (value >= 2) return 'Medium'
+  return 'Low'
 }
 
 export function computeDetermination(
   modifiers: Record<string, ModifierState>,
 ): Determination {
-  const domainResults: DomainResult[] = []
-  let allWeightSum = 0
-  let allValueSum = 0
-  let allHighest = 0
+  const domains: DomainResult[] = []
+  let overallTop = 0
   let highCount = 0
   let needsInfoCount = 0
+  let confirmedCount = 0
 
   for (const domain of DOMAINS) {
-    const ids = domain.modifiers.map((m) => m.id)
-    const { counts, w, highest, needsInfo } = accumulate(ids, modifiers)
-    const score = w.weightSum > 0 ? w.valueSum / w.weightSum : 0
-    domainResults.push({
+    const counts = { ...EMPTY_COUNTS }
+    let top = 0
+
+    for (const m of domain.modifiers) {
+      const state = modifiers[m.id]
+      if (!state) continue
+      const level = confirmedLevel(state)
+      counts[level] += 1
+      if (state.confirmed) confirmedCount += 1
+      if (level === 'Need More Info') needsInfoCount += 1
+      if (isLevel(level)) top = Math.max(top, LEVEL_VALUE[level])
+    }
+
+    domains.push({
       domainId: domain.id,
       domainName: domain.name,
-      chaiLevel: highest > 0 ? bandTop(highest) : 'Need More Info',
-      weightedLevel: w.weightSum > 0 ? bandScore(score) : 'Low',
-      weightedScore: score,
+      level: top > 0 ? topOf(top) : 'Need More Info',
       counts,
     })
-    allWeightSum += w.weightSum
-    allValueSum += w.valueSum
-    allHighest = Math.max(allHighest, highest)
+    overallTop = Math.max(overallTop, top)
     highCount += counts.High
-    needsInfoCount += needsInfo
   }
-
-  const weightedScore = allWeightSum > 0 ? allValueSum / allWeightSum : 0
-  const weightedOverall = allWeightSum > 0 ? bandScore(weightedScore) : 'Low'
-  const chaiOverall: RiskLevel | 'Need More Info' =
-    allHighest > 0 ? bandTop(allHighest) : 'Need More Info'
-
-  // Recommend the more conservative of the two so a High modifier is never
-  // averaged away by weighting.
-  const suggestedOverall: RiskLevel | 'Need More Info' =
-    chaiOverall === 'Need More Info'
-      ? 'Need More Info'
-      : LEVEL_VALUE[chaiOverall] >= LEVEL_VALUE[weightedOverall]
-        ? chaiOverall
-        : weightedOverall
 
   return {
-    chaiOverall,
-    weightedOverall,
-    weightedScore,
-    suggestedOverall,
+    overall: overallTop > 0 ? topOf(overallTop) : 'Need More Info',
     highCount,
     needsInfoCount,
-    domains: domainResults,
+    confirmedCount,
+    domains,
   }
-}
-
-function bandTop(value: number): RiskLevel {
-  if (value >= 3) return 'High'
-  if (value >= 2) return 'Medium'
-  return 'Low'
 }

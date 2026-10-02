@@ -1,101 +1,67 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { RiskLevel } from './data/riskData'
-import { ALL_MODIFIERS } from './data/riskData'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { SiteFooter, SiteHeader, Stepper } from './components/Chrome'
+import { Describe } from './components/Describe'
+import { Categorize } from './components/Categorize'
+import { Mitigate } from './components/Mitigate'
+import { Report } from './components/Report'
 import { categorizeAll } from './lib/inference'
-import {
-  lastSessionId,
-  loadSession,
-  rememberLastSession,
-  saveSession,
-} from './lib/store'
-import type { EvidenceFile, IntakeSession, ModifierState } from './lib/types'
-import { SiteFooter, SiteHeader, Stepper, type View } from './components/Chrome'
-import { Landing } from './components/Landing'
-import { IntakeForm } from './components/IntakeForm'
-import { ResultsReview } from './components/ResultsReview'
-import { ReportView } from './components/ReportView'
-import { SessionsConsole } from './components/SessionsConsole'
+import { clear, load, save } from './lib/store'
+import type { Assessment, EvidenceItem, Step } from './lib/types'
+import type { ResponseValue } from './data/riskData'
 
-function newSessionId() {
-  return `s_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+function uid() {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  )
 }
 
-function blankSession(): IntakeSession {
+function blank(): Assessment {
   const now = new Date().toISOString()
   return {
-    id: newSessionId(),
-    orgName: '',
-    orgType: 'hdo',
-    submitterName: '',
-    submitterEmail: '',
+    id: uid(),
+    reviewerOrg: '',
+    reviewerName: '',
+    vendorName: '',
     solutionName: '',
     useCase: '',
     evidence: [],
     modifiers: {},
-    status: 'draft',
+    step: 'describe',
     createdAt: now,
     updatedAt: now,
   }
 }
 
 export default function App() {
-  const [view, setView] = useState<View>('home')
-  const [session, setSession] = useState<IntakeSession>(blankSession)
-  const [resumable, setResumable] = useState(false)
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
-  const saveTimer = useRef<number | null>(null)
+  const [a, setA] = useState<Assessment>(() => load() ?? blank())
 
-  const categorized = Object.keys(session.modifiers).length > 0
-
-  // Is there a session from a previous visit worth offering to resume?
   useEffect(() => {
-    const id = lastSessionId()
-    if (!id) return
-    void loadSession(id).then((s) => {
-      if (s && (s.useCase || s.evidence.length)) setResumable(true)
-    })
+    save(a)
+  }, [a])
+
+  const update = useCallback((patch: Partial<Assessment>) => {
+    setA((prev) => ({ ...prev, ...patch, updatedAt: new Date().toISOString() }))
   }, [])
 
-  // Persist the session, debounced, whenever anything meaningful changes.
-  useEffect(() => {
-    if (!session.useCase && session.evidence.length === 0 && !categorized) return
-    setSaveState('saving')
-    if (saveTimer.current) window.clearTimeout(saveTimer.current)
-    saveTimer.current = window.setTimeout(() => {
-      void saveSession(session).then(() => {
-        rememberLastSession(session.id)
-        setSaveState('saved')
-      })
-    }, 500)
-    return () => {
-      if (saveTimer.current) window.clearTimeout(saveTimer.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session])
-
-  const touch = useCallback((patch: Partial<IntakeSession>) => {
-    setSession((prev) => ({ ...prev, ...patch, updatedAt: new Date().toISOString() }))
+  /** Re-run categorization whenever the inputs it depends on change. */
+  const recategorize = useCallback((next: Assessment): Assessment => {
+    if (Object.keys(next.modifiers).length === 0 && next.step === 'describe') return next
+    return { ...next, modifiers: categorizeAll(next.useCase, next.evidence, next.modifiers) }
   }, [])
-
-  /**
-   * Re-run categorization. Called on "Generate", and again whenever evidence or
-   * the use case changes after the first run so the review page stays live.
-   */
-  const recategorize = useCallback(
-    (next: IntakeSession): IntakeSession => ({
-      ...next,
-      modifiers: categorizeAll(next.useCase, next.evidence, next.modifiers),
-      status: next.status === 'accepted' ? 'accepted' : 'categorized',
-      updatedAt: new Date().toISOString(),
-    }),
-    [],
-  )
 
   const addEvidence = useCallback(
-    (files: EvidenceFile[]) => {
-      setSession((prev) => {
-        const next = { ...prev, evidence: [...prev.evidence, ...files] }
-        return Object.keys(prev.modifiers).length ? recategorize(next) : { ...next, updatedAt: new Date().toISOString() }
+    (packageId: string, name: string, example?: string) => {
+      setA((prev) => {
+        const item: EvidenceItem = {
+          id: uid(),
+          packageId,
+          name,
+          example,
+          addedDuring: prev.step === 'describe' ? 'intake' : 'review',
+        }
+        const next = { ...prev, evidence: [...prev.evidence, item], updatedAt: new Date().toISOString() }
+        return recategorize(next)
       })
     },
     [recategorize],
@@ -103,155 +69,126 @@ export default function App() {
 
   const removeEvidence = useCallback(
     (id: string) => {
-      setSession((prev) => {
-        const next = { ...prev, evidence: prev.evidence.filter((f) => f.id !== id) }
-        return Object.keys(prev.modifiers).length ? recategorize(next) : { ...next, updatedAt: new Date().toISOString() }
+      setA((prev) => {
+        const next = {
+          ...prev,
+          evidence: prev.evidence.filter((e) => e.id !== id),
+          updatedAt: new Date().toISOString(),
+        }
+        return recategorize(next)
       })
     },
     [recategorize],
   )
 
-  const updateModifier = useCallback((id: string, patch: Partial<ModifierState>) => {
-    setSession((prev) => ({
+  const generate = useCallback(() => {
+    setA((prev) => ({
       ...prev,
-      modifiers: { ...prev.modifiers, [id]: { ...prev.modifiers[id], ...patch } },
+      modifiers: categorizeAll(prev.useCase, prev.evidence, prev.modifiers),
+      step: 'categorize',
       updatedAt: new Date().toISOString(),
     }))
+    window.scrollTo({ top: 0 })
   }, [])
 
-  const resetWeights = useCallback(() => {
-    setSession((prev) => {
-      const modifiers = { ...prev.modifiers }
-      for (const id of Object.keys(modifiers)) modifiers[id] = { ...modifiers[id], weight: 1 }
+  const setLevel = useCallback((modifierId: string, level: ResponseValue | undefined) => {
+    setA((prev) => {
+      const st = prev.modifiers[modifierId]
+      if (!st) return prev
+      return {
+        ...prev,
+        modifiers: { ...prev.modifiers, [modifierId]: { ...st, confirmed: level } },
+        updatedAt: new Date().toISOString(),
+      }
+    })
+  }, [])
+
+  const setNotes = useCallback((modifierId: string, notes: string) => {
+    setA((prev) => {
+      const st = prev.modifiers[modifierId]
+      if (!st) return prev
+      return {
+        ...prev,
+        modifiers: { ...prev.modifiers, [modifierId]: { ...st, notes } },
+        updatedAt: new Date().toISOString(),
+      }
+    })
+  }, [])
+
+  const confirmAll = useCallback(() => {
+    setA((prev) => {
+      const modifiers = Object.fromEntries(
+        Object.entries(prev.modifiers).map(([id, st]) => [
+          id,
+          { ...st, confirmed: st.confirmed ?? st.suggested },
+        ]),
+      )
       return { ...prev, modifiers, updatedAt: new Date().toISOString() }
     })
   }, [])
 
-  function generate() {
-    setSession((prev) => recategorize(prev))
-    setView('review')
+  const go = useCallback((step: Step) => {
+    setA((prev) => ({
+      ...prev,
+      step,
+      ...(step === 'mitigate' && !prev.categorizationAcceptedAt
+        ? { categorizationAcceptedAt: new Date().toISOString() }
+        : {}),
+      updatedAt: new Date().toISOString(),
+    }))
     window.scrollTo({ top: 0 })
-  }
+  }, [])
 
-  function accept(level: RiskLevel, note: string, by: string) {
-    touch({
-      status: 'accepted',
-      finalOverall: level,
-      finalNote: note,
-      acceptedBy: by,
-      acceptedAt: new Date().toISOString(),
-    })
-  }
-
-  function startNew() {
-    setSession(blankSession())
-    setView('intake')
+  const restart = useCallback(() => {
+    clear()
+    setA(blank())
     window.scrollTo({ top: 0 })
-  }
+  }, [])
 
-  function resume() {
-    const id = lastSessionId()
-    if (!id) return
-    void loadSession(id).then((s) => {
-      if (!s) return
-      setSession(s)
-      setView(Object.keys(s.modifiers).length ? 'review' : 'intake')
-      window.scrollTo({ top: 0 })
-    })
-  }
+  const reachable = useMemo<Step[]>(() => {
+    const hasModifiers = Object.keys(a.modifiers).length > 0
+    const steps: Step[] = ['describe']
+    if (hasModifiers) steps.push('categorize')
+    if (a.categorizationAcceptedAt) steps.push('mitigate', 'report')
+    return steps
+  }, [a.modifiers, a.categorizationAcceptedAt])
 
-  function navigate(v: View) {
-    if (v === 'review' && !categorized) return
-    setView(v)
-    window.scrollTo({ top: 0 })
-  }
+  const started = a.useCase.trim().length > 0 || a.evidence.length > 0
 
   return (
     <div className="shell">
-      <SiteHeader view={view} onNavigate={navigate} hasSession={categorized} />
-      <Stepper view={view} />
-
+      <SiteHeader onRestart={restart} started={started} />
+      <Stepper step={a.step} reachable={reachable} onGo={go} />
       <main className="main">
         <div className="wrap">
-          {saveState !== 'idle' && view !== 'home' && (
-            <p className="tiny muted no-print" style={{ textAlign: 'right', margin: '0 0 8px' }}>
-              {saveState === 'saving' ? 'Saving…' : 'Saved to session record'} · session{' '}
-              <code>{session.id.slice(0, 12)}</code>
-            </p>
-          )}
-
-          {view === 'home' && (
-            <Landing onStart={startNew} onResume={resume} resumable={resumable} />
-          )}
-
-          {view === 'intake' && (
-            <IntakeForm
-              session={session}
-              onChange={touch}
+          {a.step === 'describe' && (
+            <Describe
+              a={a}
+              onChange={update}
               onAddEvidence={addEvidence}
               onRemoveEvidence={removeEvidence}
               onGenerate={generate}
             />
           )}
-
-          {view === 'review' &&
-            (categorized ? (
-              <ResultsReview
-                session={session}
-                onModifier={updateModifier}
-                onAddEvidence={addEvidence}
-                onRemoveEvidence={removeEvidence}
-                onResetWeights={resetWeights}
-                onContinue={() => {
-                  setView('report')
-                  window.scrollTo({ top: 0 })
-                }}
-                onBack={() => {
-                  setView('intake')
-                  window.scrollTo({ top: 0 })
-                }}
-              />
-            ) : (
-              <div className="alert info">
-                <span aria-hidden="true">ℹ️</span>
-                <span>
-                  No categorization yet.{' '}
-                  <button className="btn ghost sm" onClick={() => setView('intake')}>
-                    Start with the intake form
-                  </button>
-                </span>
-              </div>
-            ))}
-
-          {view === 'report' && (
-            <ReportView
-              session={session}
-              onAccept={accept}
-              onBack={() => {
-                setView('review')
-                window.scrollTo({ top: 0 })
-              }}
-              onNewSession={startNew}
+          {a.step === 'categorize' && (
+            <Categorize
+              a={a}
+              onSetLevel={setLevel}
+              onSetNotes={setNotes}
+              onAddEvidence={addEvidence}
+              onRemoveEvidence={removeEvidence}
+              onConfirmAll={confirmAll}
+              onAccept={() => go('mitigate')}
+              onBack={() => go('describe')}
             />
           )}
-
-          {view === 'admin' && (
-            <SessionsConsole
-              currentId={session.id}
-              onOpen={(s) => {
-                setSession(s)
-                setView(Object.keys(s.modifiers).length ? 'report' : 'intake')
-                window.scrollTo({ top: 0 })
-              }}
-            />
+          {a.step === 'mitigate' && (
+            <Mitigate a={a} onBack={() => go('categorize')} onNext={() => go('report')} />
           )}
+          {a.step === 'report' && <Report a={a} onBack={() => go('mitigate')} />}
         </div>
       </main>
-
       <SiteFooter />
     </div>
   )
 }
-
-// Referenced so the modifier list stays in sync with the inference model at build time.
-void ALL_MODIFIERS

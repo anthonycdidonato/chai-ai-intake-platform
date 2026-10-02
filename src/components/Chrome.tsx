@@ -1,12 +1,10 @@
-// Site header, workflow stepper, and footer.
+import type { Step } from '../lib/types'
 
-export type View = 'home' | 'intake' | 'review' | 'report' | 'admin'
-
-const STEPS: { key: View; label: string }[] = [
-  { key: 'home', label: 'Overview' },
-  { key: 'intake', label: 'Describe & upload' },
-  { key: 'review', label: 'Review categorization' },
-  { key: 'report', label: 'Accept & share' },
+const STEPS: { key: Step; label: string; caption: string }[] = [
+  { key: 'describe', label: 'Describe', caption: 'Use case and vendor documentation' },
+  { key: 'categorize', label: 'Categorize', caption: 'Confirm risk at each modifier' },
+  { key: 'mitigate', label: 'Mitigate', caption: 'Controls your risk profile calls for' },
+  { key: 'report', label: 'Report', caption: 'Review and export' },
 ]
 
 export function BrandMark() {
@@ -19,61 +17,58 @@ export function BrandMark() {
   )
 }
 
-export function SiteHeader({
-  view,
-  onNavigate,
-  hasSession,
-}: {
-  view: View
-  onNavigate: (v: View) => void
-  hasSession: boolean
-}) {
+export function SiteHeader({ onRestart, started }: { onRestart: () => void; started: boolean }) {
   return (
     <header className="site-header">
       <div className="wrap">
         <div className="brand">
           <BrandMark />
-          <span>CHAI AI Intake Platform</span>
+          <span>CHAI AI Intake</span>
         </div>
-        <nav className="header-nav" aria-label="Main">
-          <button onClick={() => onNavigate('home')} aria-current={view === 'home'}>
-            Overview
-          </button>
-          <button onClick={() => onNavigate('intake')} aria-current={view === 'intake'}>
-            Intake
-          </button>
-          <button
-            onClick={() => onNavigate('review')}
-            aria-current={view === 'review'}
-            disabled={!hasSession}
-          >
-            Categorization
-          </button>
-          <button onClick={() => onNavigate('admin')} aria-current={view === 'admin'}>
-            Saved sessions
-          </button>
-        </nav>
+        {started && (
+          <div className="header-nav">
+            <button onClick={onRestart}>Start over</button>
+          </div>
+        )}
       </div>
     </header>
   )
 }
 
-export function Stepper({ view }: { view: View }) {
-  if (view === 'admin') return null
-  const activeIndex = STEPS.findIndex((s) => s.key === view)
+export function Stepper({
+  step,
+  reachable,
+  onGo,
+}: {
+  step: Step
+  reachable: Step[]
+  onGo: (s: Step) => void
+}) {
+  const activeIndex = STEPS.findIndex((s) => s.key === step)
   return (
     <div className="stepper">
       <div className="wrap">
         <ol>
-          {STEPS.map((s, i) => (
-            <li
-              key={s.key}
-              className={i < activeIndex ? 'done' : i === activeIndex ? 'active' : ''}
-            >
-              <span className="dot">{i < activeIndex ? '✓' : i + 1}</span>
-              {s.label}
-            </li>
-          ))}
+          {STEPS.map((s, i) => {
+            const state = i < activeIndex ? 'done' : i === activeIndex ? 'active' : ''
+            const can = reachable.includes(s.key)
+            return (
+              <li key={s.key} className={state}>
+                <button
+                  className="step-btn"
+                  onClick={() => can && onGo(s.key)}
+                  disabled={!can}
+                  aria-current={i === activeIndex}
+                >
+                  <span className="dot">{i < activeIndex ? '✓' : i + 1}</span>
+                  <span className="step-text">
+                    <span className="step-label">{s.label}</span>
+                    <span className="step-caption">{s.caption}</span>
+                  </span>
+                </button>
+              </li>
+            )
+          })}
         </ol>
       </div>
     </div>
@@ -85,11 +80,10 @@ export function SiteFooter() {
     <footer className="footer no-print">
       <div className="wrap">
         <p style={{ margin: 0 }}>
-          <strong>CHAI AI Intake Platform</strong> — prototype for the CHAI Member Portal. Risk
-          categorization logic is derived from the{' '}
-          <em>Coalition for Health AI (CHAI) Risk Categorization Tool (v3)</em>. All information
-          entered here — use case description, evidence, and risk — is private to your
-          organizational colleagues in CHAI's member portal and CHAI administrators.
+          Risk categorization follows the{' '}
+          <strong>CHAI Risk Categorization Tool (v3)</strong>; mitigation controls come from the{' '}
+          <strong>CHAI Risk Mitigation Mapping</strong> library. Everything you enter stays in this
+          browser — nothing is transmitted.
         </p>
       </div>
     </footer>
