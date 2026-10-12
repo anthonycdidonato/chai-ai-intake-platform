@@ -36,7 +36,7 @@ export function Intake({ a, onChange, onAddFiles, onSetType, onRemove, onNext }:
   const [over, setOver] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const typed = a.documents.filter((d) => d.packageId).length
-  const canNext = a.solutionName.trim() && a.description.trim().length >= 20
+  const canNext = a.solutionName.trim().length > 0
 
   return (
     <>
@@ -133,7 +133,13 @@ export function Intake({ a, onChange, onAddFiles, onSetType, onRemove, onNext }:
 
       <div className="sticky-bar no-print">
         <div className="wrap">
-          <span className="small muted">{typed === 0 ? 'With no documents counted as evidence, every modifier will come back as insufficient.' : `${typed} document${typed === 1 ? '' : 's'} will be used as evidence.`}</span>
+          <span className="small muted">
+            {!canNext
+              ? 'Add a solution name to continue.'
+              : typed === 0
+                ? 'No documents are counted as evidence yet — every modifier will come back as insufficient.'
+                : `${typed} document${typed === 1 ? '' : 's'} will be used as evidence.`}
+          </span>
           <span className="spacer" />
           <button className="btn lg" onClick={onNext} disabled={!canNext}>Suggest risk levels →</button>
         </div>
