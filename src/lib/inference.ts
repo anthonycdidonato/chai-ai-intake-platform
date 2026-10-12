@@ -1,139 +1,86 @@
-// Rules-based categorization. Given the use case description and the vendor
-// documentation on file, suggest a level for every risk modifier — or say
-// plainly that the documentation received cannot answer it.
+// Step 2 engine. A modifier gets a suggested level only when the documentation
+// uploaded in step 1 includes at least one document type that answers it.
+// The description refines the level; it never substitutes for evidence.
 
-import { ALL_MODIFIERS, type ResponseValue, type RiskLevel } from '../data/riskData'
+import { ALL_MODIFIERS, type RiskLevel } from '../data/riskData'
 import { INFERENCE } from '../data/inferenceModel'
 import { packageName } from '../data/evidencePackages'
-import type { EvidenceItem, ModifierState } from './types'
+import type { ModifierState, UploadedDoc } from './types'
 
 const LEVEL_ORDER: RiskLevel[] = ['High', 'Medium', 'Low']
 
-/** Evidence package ids with at least one document on file. */
-export function suppliedPackages(evidence: EvidenceItem[]): Set<string> {
-  return new Set(evidence.map((f) => f.packageId))
+export function suppliedPackages(documents: UploadedDoc[]): Set<string> {
+  return new Set(documents.flatMap((d) => (d.packageId ? [d.packageId] : [])))
 }
 
-function matchSignal(haystack: string, phrases: string[]): string | null {
-  for (const phrase of phrases) if (haystack.includes(phrase)) return phrase
-  return null
-}
-
-function quote(list: string[]): string {
-  return list.map((id) => packageName(id)).join(', ')
-}
-
-export interface Suggestion {
-  suggested: ResponseValue
-  rationale: string
-  supportingEvidence: string[]
-  missingEvidence: string[]
-  confidence: 'High' | 'Medium' | 'Low'
-}
+const names = (ids: string[]) => ids.map(packageName).join(', ')
 
 export function categorizeModifier(
   modifierId: string,
-  useCase: string,
+  description: string,
   supplied: Set<string>,
-): Suggestion {
+): Omit<ModifierState, 'selected'> {
   const cfg = INFERENCE[modifierId]
-  const text = ` ${useCase.toLowerCase().replace(/\s+/g, ' ')} `
-
   const supporting = cfg.informingEvidence.filter((id) => supplied.has(id))
   const missing = cfg.informingEvidence.filter((id) => !supplied.has(id))
 
-  let signalLevel: RiskLevel | null = null
-  let signalPhrase: string | null = null
-  for (const level of LEVEL_ORDER) {
-    const phrases = cfg.signals?.[level]
-    if (!phrases) continue
-    const hit = matchSignal(text, phrases)
-    if (hit) {
-      signalLevel = level
-      signalPhrase = hit
-      break
-    }
-  }
-
-  if (!signalLevel && supporting.length === 0) {
+  if (supporting.length === 0) {
     return {
+      sufficient: false,
       suggested: 'Need More Info',
-      rationale:
-        `Your description does not speak to this modifier, and none of the vendor ` +
-        `documentation that would answer it is on file. Request ${quote(cfg.informingEvidence)} ` +
-        `from the vendor, or describe this dimension in the use case.`,
+      rationale: `No document on file answers this modifier. Request: ${names(cfg.informingEvidence)}.`,
       supportingEvidence: [],
       missingEvidence: missing,
-      confidence: 'Low',
     }
   }
 
-  if (signalLevel) {
-    const backed = supporting.length > 0
-    return {
-      suggested: signalLevel,
-      rationale:
-        `Suggested ${signalLevel} because the use case mentions "${signalPhrase}", which matches ` +
-        `the ${signalLevel.toLowerCase()} risk definition. ` +
-        (backed
-          ? `Corroborated by documentation on file: ${quote(supporting)}.`
-          : `No supporting documentation on file yet — ${quote(cfg.informingEvidence)} would ` +
-            `raise confidence in this suggestion.`),
-      supportingEvidence: supporting,
-      missingEvidence: missing,
-      confidence: backed ? 'High' : 'Medium',
-    }
-  }
-
-  for (const rung of cfg.evidenceLadder ?? []) {
-    if (rung.allOf.every((id) => supplied.has(id))) {
+  const text = ` ${description.toLowerCase().replace(/\s+/g, ' ')} `
+  for (const level of LEVEL_ORDER) {
+    const hit = cfg.signals?.[level]?.find((p) => text.includes(p))
+    if (hit) {
       return {
-        suggested: rung.level,
-        rationale:
-          `Your description does not address this modifier directly. Suggested ${rung.level} ` +
-          `based on the documentation on file (${quote(rung.allOf)}).` +
-          (missing.length
-            ? ` Adding ${quote(missing)} — or describing this dimension explicitly — would ` +
-              `sharpen the suggestion.`
-            : ''),
-        supportingEvidence: rung.allOf,
+        sufficient: true,
+        suggested: level,
+        rationale: `Your description mentions "${hit}", which matches the ${level} definition; supported by ${names(supporting)}.`,
+        supportingEvidence: supporting,
         missingEvidence: missing,
-        confidence: 'Medium',
       }
     }
   }
 
+  const rung = (cfg.evidenceLadder ?? []).find((r) => r.allOf.every((id) => supplied.has(id)))
+  if (rung) {
+    return {
+      sufficient: true,
+      suggested: rung.level,
+      rationale: `Based on ${names(rung.allOf)}.`,
+      supportingEvidence: rung.allOf,
+      missingEvidence: missing,
+    }
+  }
+
   return {
+    sufficient: true,
     suggested: cfg.fallback,
-    rationale:
-      `Partial documentation on file (${quote(supporting)}), but not enough to categorize with ` +
-      `confidence, and the use case does not address this dimension. Defaulted to ${cfg.fallback} — ` +
-      `the precautionary level for this modifier. Request ${quote(missing)} to replace this ` +
-      `default with an evidence-based suggestion.`,
+    rationale: `${names(supporting)} on file, but not enough to be specific — ${cfg.fallback} is the precautionary default. Adding ${names(missing)} would sharpen this.`,
     supportingEvidence: supporting,
     missingEvidence: missing,
-    confidence: 'Low',
   }
 }
 
-/**
- * Categorize every modifier. The reviewer's confirmations and notes are carried
- * forward, so adding a document never discards work already done.
- */
+/** Recategorize every modifier, keeping any selection the reviewer already made. */
 export function categorizeAll(
-  useCase: string,
-  evidence: EvidenceItem[],
+  description: string,
+  documents: UploadedDoc[],
   previous?: Record<string, ModifierState>,
 ): Record<string, ModifierState> {
-  const supplied = suppliedPackages(evidence)
+  const supplied = suppliedPackages(documents)
   const out: Record<string, ModifierState> = {}
   for (const m of ALL_MODIFIERS) {
+    const next = categorizeModifier(m.id, description, supplied)
     const prev = previous?.[m.id]
-    out[m.id] = {
-      ...categorizeModifier(m.id, useCase, supplied),
-      confirmed: prev?.confirmed,
-      notes: prev?.notes,
-    }
+    const suggestedLevel = next.sufficient ? (next.suggested as RiskLevel) : undefined
+    out[m.id] = { ...next, selected: prev?.selected ?? suggestedLevel }
   }
   return out
 }

@@ -1,66 +1,42 @@
 import type { ResponseValue, RiskLevel } from '../data/riskData'
 
-/** A document the reviewer has received from the vendor. */
-export interface EvidenceItem {
+/** A document uploaded in step 1. Only its description is kept — never its contents. */
+export interface UploadedDoc {
   id: string
-  /** Evidence package this document was filed under. */
-  packageId: string
-  /** Optional specific evidence example the reviewer selected. */
-  example?: string
   name: string
-  /** Where in the workflow this was added. */
-  addedDuring: 'intake' | 'review'
+  size: number
+  /** Which CHAI document type the reviewer says this is. Unset = not yet counted as evidence. */
+  packageId?: string
 }
 
 export interface ModifierState {
-  /** Level the platform suggested from the description and documentation. */
+  /** True when at least one document type that answers this modifier was uploaded. */
+  sufficient: boolean
+  /** Suggested level. 'Need More Info' when evidence is insufficient. */
   suggested: ResponseValue
-  /** Why — a plain-language trace the reviewer can check. */
+  /** One plain sentence on why. */
   rationale: string
-  /** Evidence packages that supported the suggestion. */
   supportingEvidence: string[]
-  /** Evidence packages that would resolve the modifier if supplied. */
+  /** Document types to request when evidence is insufficient (or to raise confidence). */
   missingEvidence: string[]
-  confidence: 'High' | 'Medium' | 'Low'
-  /** The reviewer's confirmed level. Set once they accept or change it. */
-  confirmed?: ResponseValue
-  notes?: string
+  /** The reviewer's final selection. Pre-filled with the suggestion when sufficient. */
+  selected?: RiskLevel | 'N/A'
 }
 
-export interface DomainResult {
-  domainId: string
-  domainName: string
-  /** Highest modifier level in the domain. */
-  level: RiskLevel | 'Need More Info'
-  counts: Record<ResponseValue, number>
-}
-
-export interface Determination {
-  /** Highest modifier level across both domains. */
-  overall: RiskLevel | 'Need More Info'
-  highCount: number
-  needsInfoCount: number
-  /** How many of the 19 modifiers the reviewer has explicitly confirmed. */
-  confirmedCount: number
-  domains: DomainResult[]
-}
-
-export type Step = 'describe' | 'categorize' | 'mitigate' | 'report'
+export type Step = 'intake' | 'levels' | 'mitigations'
 
 export interface Assessment {
   id: string
-  /** The organization doing the review. */
-  reviewerOrg: string
-  reviewerName: string
-  /** The vendor and solution under review. */
-  vendorName: string
   solutionName: string
-  useCase: string
-  evidence: EvidenceItem[]
+  source: 'vendor' | 'internal'
+  vendorName: string
+  orgName: string
+  reviewerName: string
+  description: string
+  documents: UploadedDoc[]
   modifiers: Record<string, ModifierState>
   step: Step
   createdAt: string
   updatedAt: string
-  /** Set when the reviewer accepts the categorization and moves to mitigations. */
-  categorizationAcceptedAt?: string
+  submittedAt?: string
 }

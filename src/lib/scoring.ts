@@ -1,80 +1,40 @@
-// Overall and per-domain risk.
-//
-// Faithful to the CHAI Risk Categorization Tool, which states that it does not
-// produce a single risk score: each modifier is categorized independently, and
-// the level that matters at the domain and solution level is the highest
-// modifier present. If any modifier is High, the solution warrants a detailed
-// risk assessment regardless of how many modifiers came out Low.
-//
-// N/A and Need More Info modifiers are carried in the counts but do not set a
-// level — an unanswered modifier is a gap to close, not a low risk.
+// Overall risk = the highest level the reviewer selected. The CHAI tool does not
+// average modifiers: one High is enough to warrant a detailed risk assessment.
 
-import { DOMAINS, type ResponseValue, type RiskLevel } from '../data/riskData'
-import type { DomainResult, Determination, ModifierState } from './types'
+import { DOMAINS, type RiskLevel } from '../data/riskData'
+import type { ModifierState } from './types'
 
-export const LEVEL_VALUE: Record<RiskLevel, number> = { Low: 1, Medium: 2, High: 3 }
+const RANK: Record<RiskLevel, number> = { Low: 1, Medium: 2, High: 3 }
+const NAME: RiskLevel[] = ['Low', 'Medium', 'High']
 
-export const EMPTY_COUNTS: Record<ResponseValue, number> = {
-  Low: 0,
-  Medium: 0,
-  High: 0,
-  'N/A': 0,
-  'Need More Info': 0,
-}
-
-/** The level in force for a modifier: the reviewer's confirmation, else the suggestion. */
-export function confirmedLevel(state: ModifierState): ResponseValue {
-  return state.confirmed ?? state.suggested
-}
-
-function isLevel(v: ResponseValue): v is RiskLevel {
-  return v === 'Low' || v === 'Medium' || v === 'High'
-}
-
-function topOf(value: number): RiskLevel {
-  if (value >= 3) return 'High'
-  if (value >= 2) return 'Medium'
-  return 'Low'
-}
-
-export function computeDetermination(
-  modifiers: Record<string, ModifierState>,
-): Determination {
-  const domains: DomainResult[] = []
-  let overallTop = 0
-  let highCount = 0
-  let needsInfoCount = 0
-  let confirmedCount = 0
-
-  for (const domain of DOMAINS) {
-    const counts = { ...EMPTY_COUNTS }
-    let top = 0
-
-    for (const m of domain.modifiers) {
-      const state = modifiers[m.id]
-      if (!state) continue
-      const level = confirmedLevel(state)
-      counts[level] += 1
-      if (state.confirmed) confirmedCount += 1
-      if (level === 'Need More Info') needsInfoCount += 1
-      if (isLevel(level)) top = Math.max(top, LEVEL_VALUE[level])
-    }
-
-    domains.push({
-      domainId: domain.id,
-      domainName: domain.name,
-      level: top > 0 ? topOf(top) : 'Need More Info',
-      counts,
-    })
-    overallTop = Math.max(overallTop, top)
-    highCount += counts.High
+export function highestOf(ids: string[], modifiers: Record<string, ModifierState>): RiskLevel | null {
+  let top = 0
+  for (const id of ids) {
+    const s = modifiers[id]?.selected
+    if (s && s !== 'N/A') top = Math.max(top, RANK[s])
   }
+  return top ? NAME[top - 1] : null
+}
 
+export interface Summary {
+  overall: RiskLevel | null
+  domains: { id: string; name: string; level: RiskLevel | null }[]
+  selected: number
+  insufficient: number
+  unselected: number
+}
+
+export function summarize(modifiers: Record<string, ModifierState>): Summary {
+  const all = Object.values(modifiers)
   return {
-    overall: overallTop > 0 ? topOf(overallTop) : 'Need More Info',
-    highCount,
-    needsInfoCount,
-    confirmedCount,
-    domains,
+    overall: highestOf(Object.keys(modifiers), modifiers),
+    domains: DOMAINS.map((d) => ({
+      id: d.id,
+      name: d.name,
+      level: highestOf(d.modifiers.map((m) => m.id), modifiers),
+    })),
+    selected: all.filter((m) => m.selected).length,
+    insufficient: all.filter((m) => !m.sufficient).length,
+    unselected: all.filter((m) => !m.selected).length,
   }
 }
