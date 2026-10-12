@@ -41,7 +41,7 @@ export function Intake({ a, onChange, onAddFiles, onSetType, onRemove, onNext }:
   return (
     <>
       <div className="hero compact">
-        <h1>Is this AI solution safe to bring in?</h1>
+        <h1>CHAI AI Intake and Risk Assessment</h1>
         <p className="lede">
           Three steps. Describe the solution and upload what you have. CHAI suggests a risk level for each of its 19 risk
           modifiers wherever the documentation supports one, and tells you what to ask for where it doesn&apos;t. Confirm

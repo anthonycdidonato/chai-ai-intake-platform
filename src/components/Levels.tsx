@@ -67,15 +67,14 @@ function Row({ m, st, onSelect }: { m: RiskModifier; st: ModifierState | undefin
   return (
     <div className={`mod lv-${cls}`}>
       <div className="mod-head static">
-        <span className="mod-num">{m.number}</span>
-        <span className="mod-main">
+        <button className="mod-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+          <span className="caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
+          <span className="mod-num">{m.number}</span>
           <span className="mod-title">{m.title}</span>
-          <span className="tiny muted mod-desc">{m.description}</span>
           {st.sufficient
-            ? <span className="small rationale-line"><strong>Suggested {st.suggested}.</strong> {st.rationale}</span>
-            : <span className="small rationale-line insufficient"><strong>Insufficient evidence.</strong> Request: {st.missingEvidence.map(packageName).join(', ')}.</span>}
-          <button className="linkish tiny" onClick={() => setOpen((o) => !o)}>{open ? 'Hide' : 'Show'} CHAI definitions</button>
-        </span>
+            ? <span className="tiny muted">suggested {st.suggested}</span>
+            : <span className="badge info">Insufficient evidence</span>}
+        </button>
         <span className="mod-right">
           <div className="seg">
             {CHOICES.map((c) => (
@@ -85,13 +84,19 @@ function Row({ m, st, onSelect }: { m: RiskModifier; st: ModifierState | undefin
         </span>
       </div>
       {open && (
-        <div className="mod-body"><div className="defs" style={{ marginTop: 14 }}>
-          {(['Low', 'Medium', 'High'] as const).map((lv) => (
-            <button key={lv} className={`def ${lv.toLowerCase()}${st.selected === lv ? ' selected' : ''}`} onClick={() => onSelect(lv)} aria-pressed={st.selected === lv}>
-              <h5>{lv}</h5>{m.definitions[lv]}
-            </button>
-          ))}
-        </div></div>
+        <div className="mod-body">
+          <p className="small muted" style={{ margin: '12px 0 6px' }}>{m.description}</p>
+          {st.sufficient
+            ? <p className="small rationale-line" style={{ margin: 0 }}><strong>Suggested {st.suggested}.</strong> {st.rationale}</p>
+            : <p className="small rationale-line insufficient" style={{ margin: 0 }}><strong>Insufficient evidence.</strong> Request: {st.missingEvidence.map(packageName).join(', ')}.</p>}
+          <div className="defs" style={{ marginTop: 14 }}>
+            {(['Low', 'Medium', 'High'] as const).map((lv) => (
+              <button key={lv} className={`def ${lv.toLowerCase()}${st.selected === lv ? ' selected' : ''}`} onClick={() => onSelect(lv)} aria-pressed={st.selected === lv}>
+                <h5>{lv}</h5>{m.definitions[lv]}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )

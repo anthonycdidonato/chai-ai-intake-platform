@@ -1406,3 +1406,10 @@ select.mod-filter {
 .share input { flex: 1 1 260px; width: auto; }
 @media (max-width: 760px) { .mod-head.static { flex-wrap: wrap; } .mod-right { width: 100%; justify-content: flex-start; margin-left: 32px; } }
 @media print { .mit-group { break-inside: avoid; } details.mit-group:not([open]) > *:not(summary) { display: block; } .share, .stepper { display: none; } }
+
+.mod-toggle { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; background: none; border: 0; padding: 0; font: inherit; text-align: left; cursor: pointer; color: inherit; }
+.mod-toggle:hover .mod-title { text-decoration: underline; }
+.mod-head.static { align-items: center; }
+.mit-group summary .caret { display: none; }
+.mit-group summary::before { content: '▸'; color: var(--medium-blue); font-size: 0.7rem; width: 10px; }
+.mit-group[open] summary::before { content: '▾'; }

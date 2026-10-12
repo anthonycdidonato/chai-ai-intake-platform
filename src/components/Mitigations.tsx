@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ALL_MODIFIERS } from '../data/riskData'
 import { packageName } from '../data/evidencePackages'
 import { summarize } from '../lib/scoring'
@@ -13,6 +13,15 @@ export function Mitigations({ a, onBack }: { a: Assessment; onBack: () => void }
   const distinct = distinctMitigations(groups)
   const open = ALL_MODIFIERS.filter((m) => !a.modifiers[m.id]?.selected)
   const [to, setTo] = useState('')
+  const [allOpen, setAllOpen] = useState<boolean | null>(null)
+
+  // Print every group expanded, then restore.
+  useEffect(() => {
+    const before = () => document.querySelectorAll<HTMLDetailsElement>('.mit-group').forEach((d) => { d.dataset.was = String(d.open); d.open = true })
+    const after = () => document.querySelectorAll<HTMLDetailsElement>('.mit-group').forEach((d) => { d.open = d.dataset.was === 'true' })
+    window.addEventListener('beforeprint', before); window.addEventListener('afterprint', after)
+    return () => { window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', after) }
+  }, [])
 
   return (
     <>
@@ -56,8 +65,15 @@ export function Mitigations({ a, onBack }: { a: Assessment; onBack: () => void }
         </div>
       )}
 
+      <div className="filter-bar no-print">
+        <span className="small muted">Expand a modifier to see its suggested mitigations.</span>
+        <span className="spacer" />
+        <button className="linkish tiny" onClick={() => setAllOpen(true)}>Expand all</button>
+        <button className="linkish tiny" onClick={() => setAllOpen(false)}>Collapse all</button>
+      </div>
+
       {groups.map((g) => (
-        <details key={g.modifierId} className={`mit-group lv-${levelClass(g.level)}`} open>
+        <details key={`${g.modifierId}-${allOpen}`} className={`mit-group lv-${levelClass(g.level)}`} open={allOpen ?? false}>
           <summary>
             <span className="mod-num">{g.number}</span>
             <span className="mod-title">{g.title}</span>
