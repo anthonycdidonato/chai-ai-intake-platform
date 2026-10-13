@@ -3,6 +3,7 @@ import { SiteFooter, SiteHeader, Stepper } from './components/Chrome'
 import { Intake, guessType } from './components/Intake'
 import { Levels } from './components/Levels'
 import { Mitigations } from './components/Mitigations'
+import { Reference, type RefTab } from './components/Reference'
 import { categorizeAll } from './lib/inference'
 import { clear, load, save } from './lib/store'
 import type { Assessment, Step } from './lib/types'
@@ -18,6 +19,7 @@ function blank(): Assessment {
 export default function App() {
   const [a, setA] = useState<Assessment>(() => load() ?? blank())
   const [saved, setSaved] = useState(false)
+  const [ref, setRef] = useState<RefTab | null>(null)
   useEffect(() => { save(a); setSaved(false) }, [a])
 
   const patch = useCallback((fn: (p: Assessment) => Assessment) => setA((p) => ({ ...fn(p), updatedAt: now() })), [])
@@ -28,10 +30,13 @@ export default function App() {
 
   return (
     <div className="shell">
-      <SiteHeader started={Boolean(a.solutionName || a.description || a.documents.length)} saved={saved}
+      <SiteHeader started={Boolean(a.solutionName || a.description || a.documents.length)} saved={saved} inReference={ref !== null}
+        onReference={() => { setRef('modifiers'); window.scrollTo({ top: 0 }) }}
         onSave={() => { save(a); setSaved(true) }} onRestart={() => { clear(); setA(blank()); window.scrollTo({ top: 0 }) }} />
-      <Stepper step={a.step} reachable={reachable} onGo={go} />
+      {ref === null && <Stepper step={a.step} reachable={reachable} onGo={go} />}
       <main className="main"><div className="wrap">
+        {ref !== null && <Reference tab={ref} onTab={setRef} onBack={() => { setRef(null); window.scrollTo({ top: 0 }) }} />}
+        {ref === null && <>
         {a.step === 'intake' && (
           <Intake a={a} onChange={(c) => patch((p) => ({ ...p, ...c }))}
             onAddFiles={(files) => patch((p) => recat({ ...p, documents: [...p.documents, ...Array.from(files).map((f) => ({ id: uid(), name: f.name, size: f.size, packageId: guessType(f.name) }))] }))}
@@ -45,6 +50,7 @@ export default function App() {
             onSubmit={() => { patch((p) => ({ ...p, submittedAt: now(), step: 'mitigations' })); window.scrollTo({ top: 0 }) }} />
         )}
         {a.step === 'mitigations' && <Mitigations a={a} onBack={() => go('levels')} />}
+        </>}
       </div></main>
       <SiteFooter />
     </div>

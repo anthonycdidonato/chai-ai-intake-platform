@@ -6,7 +6,7 @@ const STEPS: { key: Step; label: string; caption: string }[] = [
   { key: 'mitigations', label: 'Mitigations', caption: 'What to put in place' },
 ]
 
-export function SiteHeader({ onRestart, onSave, saved, started }: { onRestart: () => void; onSave: () => void; saved: boolean; started: boolean }) {
+export function SiteHeader({ onRestart, onSave, saved, started, onReference, inReference }: { onRestart: () => void; onSave: () => void; saved: boolean; started: boolean; onReference: () => void; inReference: boolean }) {
   return (
     <header className="site-header">
       <div className="wrap">
@@ -14,12 +14,11 @@ export function SiteHeader({ onRestart, onSave, saved, started }: { onRestart: (
           <span className="brand-mark" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <span key={i} />)}</span>
           <span>CHAI AI Intake</span>
         </div>
-        {started && (
-          <div className="header-nav">
-            <button onClick={onSave}>{saved ? 'Saved ✓' : 'Save for later'}</button>
-            <button onClick={onRestart}>Start over</button>
-          </div>
-        )}
+        <div className="header-nav">
+          <button onClick={onReference} aria-current={inReference}>Reference</button>
+          {started && !inReference && <button onClick={onSave}>{saved ? 'Saved ✓' : 'Save for later'}</button>}
+          {started && !inReference && <button onClick={onRestart}>Start over</button>}
+        </div>
       </div>
     </header>
   )
